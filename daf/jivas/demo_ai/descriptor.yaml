@@ -1,0 +1,21 @@
+published: true
+name: Demo AI
+description: An Demo JIVAS AI.
+actions:
+- action: jivas/agent_utils_action
+  context:
+    version: ">=0.0.1"
+    enabled: true
+- action: jivas/intro_interact_action
+  context:
+    version: ">=0.0.1"
+    enabled: true
+- action: jivas/persona_interact_action
+  context:
+    version: ">=0.0.1"
+    enabled: true
+- action: jivas/langchain_model_action
+  context:
+    version: ">=0.0.2"
+    enabled: true
+    model_name: gpt-4o

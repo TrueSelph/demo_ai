@@ -1,0 +1,11 @@
+package:
+  name: jivas/demo_ai
+  author: V75 Inc.
+  version: 0.0.3
+  meta:
+    title: Demo AI
+    description: |-
+      This is a Demo AI.
+    type: daf
+  dependencies:
+    jivas: ^2.0.0
