@@ -4,18 +4,26 @@ description: An Demo JIVAS AI.
 actions:
 - action: jivas/agent_utils_action
   context:
-    version: ">=0.0.1"
+    version: ">=0.1.0"
     enabled: true
 - action: jivas/intro_interact_action
   context:
-    version: ">=0.0.1"
+    version: ">=0.1.0"
     enabled: true
 - action: jivas/persona_interact_action
   context:
-    version: ">=0.0.1"
+    version: ">=0.1.0"
     enabled: true
 - action: jivas/langchain_model_action
   context:
-    version: ">=0.0.2"
+    version: ">=0.1.0"
     enabled: true
     model_name: gpt-4o
+- action: jivas/wppconnect_action
+  context:
+    version: ">=0.1.0"
+    enabled: true
+- action: jivas/pulse_action
+  context:
+    version: ">=0.1.0"
+    enabled: true
