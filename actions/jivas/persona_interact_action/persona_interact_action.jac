@@ -163,14 +163,11 @@ node PersonaInteractAction(InteractAction) {
                 "directives": directives,
                 "utterance": visitor.utterance
             },
-            kwargs={
-                "model_name": self.model_name,
-                "model_temperature": self.model_temperature,
-                "model_max_tokens": self.model_max_tokens,
-                "streaming": visitor.streaming
-            },
+            streaming=visitor.streaming,
             interaction_node=visitor.interaction_node,
-            streaming=visitor.streaming
+            model_name=self.model_name,
+            model_temperature=self.model_temperature,
+            model_max_tokens=self.model_max_tokens
         );
 
         if not model_action_result {
