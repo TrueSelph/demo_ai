@@ -104,16 +104,14 @@ node PersonaInteractAction(InteractAction) {
         }
     }
 
-    def touch(visitor: interact_graph_walker) -> bool {
+    def touch(visitor:interact_graph_walker) -> bool {
         # authorize, redirect or deny the interact walker here
         # only executes if response message is empty
-        if (visitor.utterance and not visitor.interaction_node.has_response()) {
-            return True;
-        }
+        return (visitor.utterance and not visitor.interaction_node.has_response());
         return False;
     }
 
-    def execute(visitor: interact_graph_walker) {
+    def execute(visitor:interact_graph_walker) -> None {
 
         # format response by channel
         self.handle_channel_format(visitor=visitor);
@@ -186,7 +184,7 @@ node PersonaInteractAction(InteractAction) {
         }
     }
 
-    def prepare_persona_task_directives(directives:list) -> str{
+    def prepare_persona_task_directives(directives:list) -> str {
         directives_str = "";
         index = 1;
 

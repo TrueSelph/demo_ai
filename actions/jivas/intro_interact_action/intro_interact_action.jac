@@ -12,10 +12,9 @@ node IntroInteractAction(InteractAction) {
         return visitor.interaction_node.is_new_user();
     }
 
-    def execute(visitor: interact_graph_walker) -> dict {
+    def execute(visitor: interact_graph_walker) -> None {
         # add directive to issue introductory response
         visitor.interaction_node.add_directive(directive=self.prompt);
-        return visitor.export();
     }
 
     def healthcheck() -> Union[bool, dict] {
