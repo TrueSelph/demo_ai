@@ -8,11 +8,11 @@ node IntroInteractAction(InteractAction) {
 
     has prompt:str = "In a natural and brief manner: \n a. Introduce yourself by name and explain your role \n b. Refer the first-time user to read your AI policy at https://platform.trueselph.com/policy before continuing. It contains our privacy policy.";
 
-    def touch(visitor: interact_graph_walker) -> bool {
+    def touch(visitor: agent_graph_walker) -> bool {
         return visitor.interaction_node.is_new_user();
     }
 
-    def execute(visitor: interact_graph_walker) -> None {
+    def execute(visitor: agent_graph_walker) -> None {
         # add directive to issue introductory response
         visitor.interaction_node.add_directive(directive=self.prompt);
     }

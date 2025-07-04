@@ -5,7 +5,7 @@ import from logging { Logger }
 import from jivas.agent.modules.agentlib.utils { Utils }
 import from jivas.agent.action.interact_action { InteractAction }
 import from jivas.agent.memory.interaction_response { TextInteractionMessage, SilentInteractionMessage }
-import from jivas.agent.action.interact_graph_walker { interact_graph_walker }
+import from jivas.agent.action.agent_graph_walker { agent_graph_walker }
 
 
 node PersonaInteractAction(InteractAction) {
@@ -104,14 +104,14 @@ node PersonaInteractAction(InteractAction) {
         }
     }
 
-    def touch(visitor:interact_graph_walker) -> bool {
+    def touch(visitor:agent_graph_walker) -> bool {
         # authorize, redirect or deny the interact walker here
         # only executes if response message is empty
         return (visitor.utterance and not visitor.interaction_node.has_response());
         return False;
     }
 
-    def execute(visitor:interact_graph_walker) -> None {
+    def execute(visitor:agent_graph_walker) -> None {
 
         # format response by channel
         self.handle_channel_format(visitor=visitor);
@@ -200,7 +200,7 @@ node PersonaInteractAction(InteractAction) {
         return directives_str;
     }
 
-    def handle_channel_format(visitor: interact_graph_walker) -> dict {
+    def handle_channel_format(visitor: agent_graph_walker) -> dict {
         channel = visitor.interaction_node.channel;
 
         if(channel in self.channel_format_directives) {

@@ -11,11 +11,11 @@ import from jivas.agent.core.agent { Agent }
 import from jivas.agent.memory.frame { Frame }
 import from jivas.agent.action.action { Action }
 import from jivas.agent.action.interact { interact }
-import from jivas.agent.action.interact_graph_walker { interact_graph_walker }
+import from jivas.agent.action.agent_graph_walker { agent_graph_walker }
 import from jvserve.lib.file_interface { file_interface }
 import from jac_cloud.plugin.jaseci { JacPlugin as Jac }
 
-walker wppconnect_interact(interact_graph_walker) {
+walker wppconnect_interact(agent_graph_walker) {
     # called via a webhook whenever there are verification requests or inbound messages
     # when activated, it will trigger the whatsapp interact action to communicate
 
