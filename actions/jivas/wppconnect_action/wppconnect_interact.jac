@@ -211,7 +211,7 @@ walker wppconnect_interact(agent_graph_walker) {
                 verbose = False,
                 reporting = False,
                 channel = "whatsapp",
-                data = [{"label": "whatsapp_chat", "meta": {}, "content": data}]
+                data = [{"key": "whatsapp_chat", "value": data}]
             )).message;
 
             action_node.send_message(session_id=frame_node.session_id, message=message, is_group=data["isGroup"]);
@@ -251,7 +251,7 @@ walker wppconnect_interact(agent_graph_walker) {
                     reporting = False,
                     tts = True,
                     channel = "whatsapp",
-                    data = [{"label": "whatsapp_voicenote", "meta": {"message_type": data['message_type']}, "content": data['media']}]
+                    data = [{"key": "whatsapp_voicenote", "value": data['media']}]
                 ));
             }
 
@@ -323,7 +323,7 @@ walker wppconnect_interact(agent_graph_walker) {
                 verbose = False,
                 reporting = False,
                 channel = "whatsapp",
-                data = [{"label": "whatsapp_media", "meta": {}, "content": data}]
+                data = [{"key": "whatsapp_media", "value": data}]
             )).message;
 
             action_node.send_message(session_id=frame_node.session_id, message=message, is_group=data["isGroup"]);
@@ -345,7 +345,7 @@ walker wppconnect_interact(agent_graph_walker) {
                 verbose = False,
                 reporting = False,
                 channel = "whatsapp",
-                data = [{"label": "whatsapp_location", "meta": {}, "content": data}]
+                data = [{"key": "whatsapp_location", "value": data}]
             )).message;
 
             action_node.send_message(session_id=frame_node.session_id, message=message, is_group=data["isGroup"]);
