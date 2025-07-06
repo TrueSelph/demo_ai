@@ -5,6 +5,7 @@ import from logging { Logger }
 import from langchain_core.prompts { ChatPromptTemplate }
 import from langchain_openai { ChatOpenAI, AzureChatOpenAI }
 import from langchain_community.callbacks { get_openai_callback }
+import from langchain.schema { get_buffer_string }
 import from jivas.agent.action.model_action { ModelAction, ModelActionResult }
 
 node LangChainModelAction(ModelAction) {
@@ -120,7 +121,7 @@ node LangChainModelAction(ModelAction) {
                 with get_openai_callback() as cb {
                     if streaming {
                         return ModelActionResult(
-                            prompt = messages,
+                            prompt = get_buffer_string(messages),
                             tokens = cb.total_tokens,
                             generator = llm.stream(messages),
                             temperature = temperature,
@@ -129,7 +130,7 @@ node LangChainModelAction(ModelAction) {
                         );
                     } elif (message := llm.invoke(messages)) {
                         return ModelActionResult(
-                            prompt = messages,
+                            prompt = get_buffer_string(messages),
                             functions = functions,
                             tokens = cb.total_tokens,
                             result = message.tool_calls if functions else message.content,
