@@ -1,5 +1,4 @@
 import logging;
-import traceback;
 import from logging { Logger }
 import from jivas.agent.core.agents { Agents }
 import from jivas.agent.action.agent_graph_walker { agent_graph_walker }

@@ -1,7 +1,5 @@
 import logging;
-import traceback;
 import from logging { Logger }
-import base64;
 import from jivas.agent.core.agent { Agent }
 import from jivas.agent.action.action { Action }
 import from jivas.agent.action.actions { Actions }

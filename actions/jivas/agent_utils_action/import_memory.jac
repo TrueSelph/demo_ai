@@ -1,7 +1,5 @@
 import logging;
-import traceback;
 import from logging { Logger }
-import base64;
 import from jivas.agent.core.agent { Agent }
 import from jivas.agent.action.action { Action }
 import from jivas.agent.action.actions { Actions }
@@ -11,7 +9,7 @@ import from jivas.agent.action.agent_graph_walker { agent_graph_walker }
 walker import_memory(agent_graph_walker) {
 
     has data:str = "";
-    has overwite:bool = True;
+    has overwrite:bool = True;
     has response:bool = False;
 
     # set up logger
@@ -26,7 +24,7 @@ walker import_memory(agent_graph_walker) {
     }
 
     can on_action with Action entry {
-        self.response = here.import_memory(self.data, self.overwite);
+        self.response = here.import_memory(self.data, self.overwrite);
     }
 
 }
