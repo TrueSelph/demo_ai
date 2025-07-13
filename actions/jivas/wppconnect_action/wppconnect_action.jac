@@ -9,7 +9,7 @@ import from typing { Union }
 import from logging { Logger }
 import from jivas.agent.modules.agentlib.utils { Utils }
 import from .modules.wppconnect_api { WPPConnectAPI }
-import from jvserve.lib.agent_interface { AgentInterface }
+import from jvserve.lib.agent_interface { encrypt_webhook_key_exec }
 import from jivas.agent.action.action { Action }
 import from jivas.agent.memory.interaction_response {
     MessageType, InteractionMessage, TextInteractionMessage, MediaInteractionMessage, MultiInteractionMessage
@@ -178,11 +178,11 @@ node WPPConnectAction(Action) {
         agent_id = self.get_agent().id;
         module_root = self.get_module_root();
         # generate webhook key
-        webhook_key = AgentInterface.encrypt_webhook_key(agent_id=agent_id, module_root=module_root, walker="wppconnect_interact");
+        webhook_key = encrypt_webhook_key_exec(agent_id=agent_id, module_root=module_root, walker="wppconnect_interact");
 
         if(self.base_url and self.api_url and webhook_key) {
             # complete the full webhook url
-            self.webhook_url = f'{self.base_url}/webhook/{webhook_key}';
+            self.webhook_url = f'{self.base_url}/action/webhook/{webhook_key}';
             self.logger.debug(f'wppconnect webhook url: {self.webhook_url}');
 
             result = self.api().register_session(webhook_url = self.webhook_url, wait_qr_code = True);
@@ -232,7 +232,7 @@ node WPPConnectAction(Action) {
         if(message and session_id) {
 
             if(not parent_message_id) {
-                parent_message_id = message.get_meta('parent_message_id');
+                parent_message_id = message.data_get('parent_message_id');
             }
 
             if (message.get_type() == MessageType.SILENCE.value) {}
