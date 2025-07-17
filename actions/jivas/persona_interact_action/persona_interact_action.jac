@@ -123,7 +123,7 @@ node PersonaInteractAction(InteractAction) {
 
         # prepare directives
         directives = self.prepare_persona_task_directives( visitor.interaction_node.get_directives() );
-        
+
         # prepare the prompt with utterance
         prompt_messages = [
             {"system": self.prompt},
@@ -132,10 +132,10 @@ node PersonaInteractAction(InteractAction) {
 
         # add history to prompt if configured.
         if (self.history) {
-            # grab the history  
+            # grab the history
             statements = visitor.frame_node.get_transcript_statements(
-                interactions = self.history_size, 
-                max_statement_length = self.max_statement_length, 
+                interactions = self.history_size,
+                max_statement_length = self.max_statement_length,
                 with_events = True
             );
             if (statements) {
@@ -170,16 +170,11 @@ node PersonaInteractAction(InteractAction) {
             return;
         }
 
-        if visitor.streaming {
-            # convey the generator when streaming
-            visitor.generator = model_action_result.get_generator();
-        } else {
-            # set the interaction message when not streaming
-            interaction_message = model_action_result.get_result() or "...";
-            visitor.interaction_node.set_message(
-                TextInteractionMessage(content=interaction_message)
-            );
-        }
+        # set the interaction message
+        interaction_message = model_action_result.get_result() or "...";
+        visitor.interaction_node.set_message(
+            TextInteractionMessage(content=interaction_message)
+        );
     }
 
     def prepare_persona_task_directives(directives:list) -> str {
