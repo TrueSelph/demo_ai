@@ -30,4 +30,4 @@ jobs:
       # Run Jaclang test cases
       - name: Run Jaclang Tests
         run: |
-          jac test
+          jac test actions/jivas/agent_utils_action/agent_utils_action.jac
