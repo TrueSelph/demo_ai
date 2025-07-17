@@ -7,6 +7,7 @@ import from langchain_openai { ChatOpenAI, AzureChatOpenAI }
 import from langchain_community.callbacks { get_openai_callback }
 import from langchain.schema { get_buffer_string }
 import from jivas.agent.action.model_action { ModelAction, ModelActionResult }
+import from jac_cloud.plugin { WEBSOCKET_MANAGER as socket }
 
 node LangChainModelAction(ModelAction) {
     # JIVAS action wrapper around LangChain library for abstracted LLM interfacing
@@ -29,6 +30,8 @@ node LangChainModelAction(ModelAction) {
         prompt_variables:dict,
         **kwargs:dict
     ) -> Optional[ModelActionResult] {
+        interaction_node = kwargs.get("interaction_node");
+        frame_node = interaction_node.get_frame();
 
         llm = None;
 
@@ -120,11 +123,30 @@ node LangChainModelAction(ModelAction) {
 
                 with get_openai_callback() as cb {
                     if streaming {
+                       client_id = interaction_node.data_get("client_id");
+
+					   full_text = "";
+					   total_tokens = 0;
+
+                       for chunk in llm.stream(messages) {
+                            full_text += chunk.content;
+                            total_tokens += 1;
+                            event_msg = {
+                               	 			"id": interaction_node.id,
+                            				"content": chunk.content,
+                                			"session_id": frame_node.session_id,
+                                            "type": chunk.type,
+                                            "metadata": chunk.response_metadata,
+                                        };
+
+	    					socket.notify_clients([client_id], {"type": "chat", "data": event_msg});
+                        }
+
                         return ModelActionResult(
                             prompt = get_buffer_string(messages),
-                            tokens = cb.total_tokens,
-                            generator = llm.stream(messages),
+                            tokens = total_tokens,
                             temperature = temperature,
+                            result = full_text,
                             model_name = model_name,
                             max_tokens = max_tokens
                         );
@@ -162,8 +184,8 @@ node LangChainModelAction(ModelAction) {
 
         try {
             if( model_action_result := self.call_model(
-                    prompt_messages = test_prompt_messages, 
-                    prompt_variables = {}, 
+                    prompt_messages = test_prompt_messages,
+                    prompt_variables = {},
                     model_name=self.model_name,
                     model_temperature=self.model_temperature,
                     model_max_tokens=self.model_max_tokens
