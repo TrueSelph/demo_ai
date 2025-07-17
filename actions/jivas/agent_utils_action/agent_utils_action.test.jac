@@ -29,16 +29,18 @@ test delete_agent {
     agent = agents[0] ++> Agent();
     agent_id = jid(agent[0]);
     agents[0] spawn delete_agent(agent_id=agent_id);
-    assert len([agents-->]) == 0;
+    check len([agents-->]) == 0;
 }
 
 test memory_healthcheck {
     response_walker = agent[0] spawn memory_healthcheck();
+    check response_walker.response.get('total_frames') == 0;
+    check response_walker.response.get('total_interactions') == 0;
 }
 
 test get_logging {
     response_walker = agent[0] spawn get_logging();
-    assert response_walker.response == True;
+    check response_walker.response == True;
 }
 
 
