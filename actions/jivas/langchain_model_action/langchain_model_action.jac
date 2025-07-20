@@ -6,6 +6,7 @@ import from langchain_core.prompts { ChatPromptTemplate }
 import from langchain_openai { ChatOpenAI, AzureChatOpenAI }
 import from langchain_community.callbacks { get_openai_callback }
 import from langchain.schema { get_buffer_string }
+import from jivas.agent.modules.agentlib.utils { Utils }
 import from jivas.agent.action.model_action { ModelAction, ModelActionResult }
 import from jac_cloud.plugin { WEBSOCKET_MANAGER as socket }
 
@@ -30,8 +31,6 @@ node LangChainModelAction(ModelAction) {
         prompt_variables:dict,
         **kwargs:dict
     ) -> Optional[ModelActionResult] {
-        interaction_node = kwargs.get("interaction_node");
-        frame_node = interaction_node.get_frame();
 
         llm = None;
 
@@ -122,24 +121,26 @@ node LangChainModelAction(ModelAction) {
                 }
 
                 with get_openai_callback() as cb {
-                    if streaming {
-                       client_id = interaction_node.data_get("client_id");
+                    interaction_node = kwargs.get("interaction_node");
+                    if streaming and interaction_node {
+                        frame_node = interaction_node.get_frame();
+                        client_id = interaction_node.data_get("client_id");
 
-					   full_text = "";
-					   total_tokens = 0;
+                        full_text = "";
+                        total_tokens = 0;
 
-                       for chunk in llm.stream(messages) {
+                        for chunk in llm.stream(messages) {
                             full_text += chunk.content;
                             total_tokens += 1;
                             event_msg = {
-                               	 			"id": interaction_node.id,
-                            				"content": chunk.content,
-                                			"session_id": frame_node.session_id,
+                                            "id": interaction_node.id,
+                                            "content": chunk.content,
+                                            "session_id": frame_node.session_id,
                                             "type": chunk.type,
                                             "metadata": chunk.response_metadata,
                                         };
 
-	    					socket.notify_clients([client_id], {"type": "chat", "data": event_msg});
+                            socket.notify_clients([client_id], {"type": "chat", "data": event_msg});
                         }
 
                         return ModelActionResult(

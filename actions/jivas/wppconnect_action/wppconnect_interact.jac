@@ -28,6 +28,17 @@ walker wppconnect_interact(agent_graph_walker) {
     # main param for outgoing webhook data
     has response:dict = {};
 
+    obj __specs__ {
+        
+        has webhook: dict = {
+            "type": "path",
+            "name": "auth"
+        }, 
+        path: str = "/webhook/wppconnect_interact/{auth}",
+        methods: list = ["get", "post"],
+        auth: bool = False;
+    }
+
     can on_agent with Agent entry {
 
         # handle request here to ensure it's worth the walk
