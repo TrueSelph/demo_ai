@@ -14,6 +14,14 @@ walker purge_frame_memory(agent_graph_walker) {
     # set up logger
     static has logger:Logger = logging.getLogger(__name__);
 
+    obj __specs__ {
+        # action walkers are public by default, unless overridden
+        static has private: bool = False;
+        static has auth: bool = True;
+        # api path override
+        static has path: str = f"/agent_utils_action/purge_frame_memory";
+    }
+
     can on_agent with Agent entry {
         visit [-->](`?Actions);
     }
