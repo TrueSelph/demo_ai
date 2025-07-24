@@ -19,7 +19,7 @@ walker purge_frame_memory(agent_graph_walker) {
         static has private: bool = False;
         static has auth: bool = True;
         # api path override
-        static has path: str = f"/agent_utils_action/purge_frame_memory";
+        static has path: str = f"/walker/agent_utils_action/purge_frame_memory";
     }
 
     can on_agent with Agent entry {

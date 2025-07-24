@@ -111,7 +111,7 @@ node PulseAction(Action) {
             # let's ensure we clear any preexisting jobs under the tag 'action_label'
             schedule.clear(action_label);
             # now, prepare the schedule statement
-            exec_str = f'schedule.{interval}.do(AgentInterface.api_pulse, "action_label={action_label}", "agent_id={agent_id}").tag("pulse-actions", "{action_label}")';
+            exec_str = f'schedule.{interval}.do(api_pulse, "action_label={action_label}", "agent_id={agent_id}").tag("pulse-actions", "{action_label}")';
             # let errr rip..
             return exec(exec_str);
         } except Exception as e {

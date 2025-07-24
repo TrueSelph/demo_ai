@@ -124,7 +124,7 @@ def render(router: StreamlitRouter, agent_id: str, action_id: str, info: dict) -
             with col1:
                 if st.button("Yes, Purge Frame"):
                     purge_frame_result = call_api(
-                        endpoint = "agent_utils_action/purge_frame_memory",
+                        endpoint = "walker/agent_utils_action/purge_frame_memory",
                         json_data = {"agent_id": agent_id, "session_id": session_id},
                     )
                     if purge_frame_result and purge_frame_result.status_code == 200:

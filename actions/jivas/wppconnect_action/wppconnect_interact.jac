@@ -22,11 +22,13 @@ walker wppconnect_interact(agent_graph_walker) {
     # set up logger
     static has logger:Logger = logging.getLogger(__name__);
 
-    has headers:dict = {};
-    # main param for incoming webhook data
-    has params:dict = {};
-    # main param for outgoing webhook data
-    has response:dict = {};
+    has agent_id: str;
+    
+    # has headers:dict = {};
+    # # main param for incoming webhook data
+    # has params:dict = {};
+    # # main param for outgoing webhook data
+    # has response:dict = {};
 
     obj __specs__ {
         
@@ -34,13 +36,14 @@ walker wppconnect_interact(agent_graph_walker) {
             "type": "path",
             "name": "auth"
         }, 
-        path: str = "/webhook/wppconnect_interact/{auth}",
+        path: str = "/webhook/wppconnect_action/wppconnect_interact/{agent_id}/{auth}",
         methods: list = ["get", "post"],
         auth: bool = False;
     }
 
     can on_agent with Agent entry {
-
+        
+        request = _.get_context().connection;
         # handle request here to ensure it's worth the walk
         if(not self.params) {
             Jac.get_context().status = 200;
