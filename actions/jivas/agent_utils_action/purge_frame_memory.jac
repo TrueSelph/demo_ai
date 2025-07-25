@@ -3,23 +3,19 @@ import from logging { Logger }
 import from jivas.agent.core.agent { Agent }
 import from jivas.agent.action.action { Action }
 import from jivas.agent.action.actions { Actions }
+import from jivas.agent.modules.agentlib.utils { Utils }
 import from jivas.agent.action.agent_graph_walker { agent_graph_walker }
-
 
 walker purge_frame_memory(agent_graph_walker) {
 
     has session_id:str = "";
-    has response:bool = False;
 
     # set up logger
     static has logger:Logger = logging.getLogger(__name__);
 
-    obj __specs__ {
-        # action walkers are public by default, unless overridden
+    class __specs__ {
         static has private: bool = False;
-        static has auth: bool = True;
-        # api path override
-        static has path: str = f"/walker/agent_utils_action/purge_frame_memory";
+        static has path: str = Utils.action_walker_path(__module__);
     }
 
     can on_agent with Agent entry {
@@ -31,7 +27,10 @@ walker purge_frame_memory(agent_graph_walker) {
     }
 
     can on_action with Action entry {
-        self.response = here.purge_frame_memory(self.session_id);
+        response = here.purge_frame_memory(self.session_id);
+        if self.reporting {
+            report response;
+        }
     }
 
 }

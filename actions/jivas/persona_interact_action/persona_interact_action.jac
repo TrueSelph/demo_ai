@@ -117,14 +117,12 @@ node PersonaInteractAction(InteractAction) {
 
         # grab user's name, if set
         user = visitor.frame_node.get_user_name();
-
         date = Utils.date_now(timezone=self.timezone, date_format='%A, %d %B, %Y');
         time = Utils.date_now(timezone=self.timezone, date_format='%I:%M %p');
-
         # prepare directives
         directives = self.prepare_persona_task_directives( visitor.interaction_node.get_directives() );
 
-        # prepare the prompt with utterance
+        # prepare the prompt
         prompt_messages = [];
 
         # add history to prompt if configured.
