@@ -5,53 +5,42 @@ import uuid;
 import base64;
 import mimetypes;
 import from logging { Logger }
-import from jivas.agent.modules.agentlib.utils { Utils }
-import from .modules.wppconnect_api { WPPConnectAPI }
 import from jivas.agent.core.agent { Agent }
 import from jivas.agent.memory.frame { Frame }
 import from jivas.agent.action.action { Action }
 import from jivas.agent.action.interact { interact }
-import from jivas.agent.action.agent_graph_walker { agent_graph_walker }
-import from jvserve.lib.file_interface { file_interface }
+import from .modules.wppconnect_api { WPPConnectAPI }
 import from jac_cloud.plugin.jaseci { JacPlugin as Jac }
+import from jivas.agent.modules.agentlib.utils { Utils }
+import from jvserve.lib.file_interface { file_interface }
+import from jivas.agent.action.action_webhook_walker { action_webhook_walker }
 
-walker wppconnect_interact(agent_graph_walker) {
+walker wppconnect_interact(action_webhook_walker) {
     # called via a webhook whenever there are verification requests or inbound messages
     # when activated, it will trigger the whatsapp interact action to communicate
 
     # set up logger
     static has logger:Logger = logging.getLogger(__name__);
-
-    has agent_id: str;
     
-    # has headers:dict = {};
-    # # main param for incoming webhook data
-    # has params:dict = {};
-    # # main param for outgoing webhook data
-    # has response:dict = {};
-
-    obj __specs__ {
-        
-        has webhook: dict = {
-            "type": "path",
-            "name": "auth"
-        }, 
-        path: str = "/webhook/wppconnect_action/wppconnect_interact/{agent_id}/{auth}",
-        methods: list = ["get", "post"],
-        auth: bool = False;
+    # set up walker as webhook
+    class __specs__(action_webhook_walker.__specs__) {
+        static has private: bool = False; # make it public
+        static has path: str = Utils.action_webhook_path(__module__);
     }
 
     can on_agent with Agent entry {
         
-        request = _.get_context().connection;
+        # grab payload from webhook call
+        payload = self.get_request_json();
+
         # handle request here to ensure it's worth the walk
-        if(not self.params) {
+        if(not payload) {
             Jac.get_context().status = 200;
             disengage;
         }
 
         # parse data if we've gotten this far..
-        data = WPPConnectAPI.parse_inbound_message(request = self.params);
+        data = WPPConnectAPI.parse_inbound_message(request = payload);
 
         if(not data) {
             Jac.get_context().status = 200;

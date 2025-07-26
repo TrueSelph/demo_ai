@@ -3,7 +3,7 @@
 import time
 
 import streamlit as st
-from jvclient.lib.utils import call_action_walker_exec
+from jvclient.lib.utils import call_api, call_action_walker_exec
 from jvclient.lib.widgets import app_controls, app_header, app_update_action
 from streamlit_router import StreamlitRouter
 
@@ -30,18 +30,33 @@ def render(router: StreamlitRouter, agent_id: str, action_id: str, info: dict) -
 
     def get_wppconnect_status() -> None:
         """Call and store the latest status in session state."""
-        result = call_action_walker_exec(agent_id, module_root, "register_session", {})
-        st.session_state[session_payload_key] = result or {}
+        st.session_state[session_payload_key] = {}
+        
+        result = call_api(
+            endpoint = "walker/wppconnect_action/register_session",
+            json_data = {"agent_id": agent_id},
+        )
+        if result and result.status_code == 200:
+            json = result.json()
+            st.session_state[session_payload_key] = json.get('reports', [{}])[0]
 
     def logout_wppconnect() -> None:
-        call_action_walker_exec(agent_id, module_root, "logout_session", {})
-        st.session_state.pop(session_payload_key, None)
-        # Optionally store a notification or feedback flag
+        """Logout session state."""
+        result = call_api(
+            endpoint = "walker/wppconnect_action/logout_session",
+            json_data = {"agent_id": agent_id},
+        )
+        if result and result.status_code == 200:
+            st.session_state.pop(session_payload_key, None)
 
     def close_wppconnect() -> None:
-        call_action_walker_exec(agent_id, module_root, "close_session", {})
-        st.session_state.pop(session_payload_key, None)
-        # Optionally store a notification or feedback flag
+        """Close session state."""
+        result = call_api(
+            endpoint = "walker/wppconnect_action/close_session",
+            json_data = {"agent_id": agent_id},
+        )
+        if result and result.status_code == 200:
+            st.session_state.pop(session_payload_key, None)
 
     # initialize the session state for wppconnect status
     if session_payload_key not in st.session_state:
@@ -52,7 +67,7 @@ def render(router: StreamlitRouter, agent_id: str, action_id: str, info: dict) -
 
     with st.expander("WPPConnect Session Registration", expanded=True):
 
-        if result == {} or result.get("status") == "ERROR":
+        if result == {}:
             st.error(
                 f"{result.get("message", "Session registration error.")} Check your WPPConnect Configuration and try again.",
                 icon="❌",
