@@ -9,7 +9,6 @@ import from typing { Union }
 import from logging { Logger }
 import from jivas.agent.modules.agentlib.utils { Utils }
 import from .modules.wppconnect_api { WPPConnectAPI }
-import from jvserve.lib.agent_interface { encrypt_webhook_key_exec }
 import from jivas.agent.action.action { Action }
 import from .wppconnect_interact { wppconnect_interact }
 import from jivas.agent.memory.interaction_response {

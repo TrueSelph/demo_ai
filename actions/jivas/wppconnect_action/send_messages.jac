@@ -84,11 +84,6 @@ walker send_messages(agent_graph_walker) {
     # set up logger
     static has logger:Logger = logging.getLogger(__name__);
 
-    obj __specs__ {
-        # make this walker visible in API
-        static has private: bool = False;
-    }
-
     can on_agent with Agent entry {
         visit [-->](`?Actions);
     }
