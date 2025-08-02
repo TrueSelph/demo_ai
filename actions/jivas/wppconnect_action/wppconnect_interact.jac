@@ -5,15 +5,17 @@ import uuid;
 import base64;
 import mimetypes;
 import from logging { Logger }
+
+import from jivas.agent.modules.action.path { action_webhook_path }
+
+import from .modules.wppconnect_api { WPPConnectAPI }
 import from jivas.agent.core.agent { Agent }
 import from jivas.agent.memory.frame { Frame }
 import from jivas.agent.action.action { Action }
 import from jivas.agent.action.interact { interact }
-import from .modules.wppconnect_api { WPPConnectAPI }
-import from jac_cloud.plugin.jaseci { JacPlugin as Jac }
-import from jivas.agent.modules.agentlib.utils { Utils }
-import from jvserve.lib.file_interface { file_interface }
 import from jivas.agent.action.action_webhook_walker { action_webhook_walker }
+import from jac_cloud.plugin.jaseci { JacPlugin as Jac }
+
 
 walker wppconnect_interact(action_webhook_walker) {
     # called via a webhook whenever there are verification requests or inbound messages
@@ -21,15 +23,15 @@ walker wppconnect_interact(action_webhook_walker) {
 
     # set up logger
     static has logger:Logger = logging.getLogger(__name__);
-    
+
     # set up walker as webhook
     class __specs__(action_webhook_walker.__specs__) {
         static has private: bool = False; # make it public
-        static has path: str = Utils.action_webhook_path(__module__);
+        static has path: str = action_webhook_path(__module__);
     }
 
     can on_agent with Agent entry {
-        
+
         # grab payload from webhook call
         payload = self.get_request_json();
 
@@ -91,8 +93,8 @@ walker wppconnect_interact(action_webhook_walker) {
                 disengage;
             }
 
-            # init the frame here so we def have it all set up to add the sender info from data
-            # we have to force session to get frame to use the session_id we supply, so we def track whatsapp user by number
+            # init the frame here so we can have it all set up to add the sender info from data
+            # we have to force session to get frame to use the session_id we supply, so we can track whatsapp user by number
             frame_node = here.get_memory().get_frame(agent_id = here.id, session_id = data["sender"], force_session=True);
 
             if(action_node.use_pushname) {
@@ -123,6 +125,17 @@ walker wppconnect_interact(action_webhook_walker) {
             # handle voicenote requests
             if(data['message_type'] in ['audio', 'document', 'image', 'video']) {
                 self.handle_media_message(
+                    data = data,
+                    agent_node = here,
+                    frame_node = frame_node,
+                    action_node = action_node
+                );
+            }
+
+
+            # handle poll requests
+            if(data['message_type'] in ['poll']) {
+                self.handle_poll_message(
                     data = data,
                     agent_node = here,
                     frame_node = frame_node,
@@ -188,7 +201,6 @@ walker wppconnect_interact(action_webhook_walker) {
     }
 
     def handle_chat_message(data:dict, agent_node:Agent, frame_node:Frame, action_node:Action) {
-
         if(self.is_directed_message(action_node, data)) {
             # only respond if we have a message and if we are messaged with @ in groups
 
@@ -292,6 +304,16 @@ walker wppconnect_interact(action_webhook_walker) {
     def handle_media_message(data:dict, agent_node:Agent, frame_node:Frame, action_node:Action) {
         # add document resource to data node in interaction
         if(self.is_directed_message(action_node, data)) {
+            # default utterance
+            interact_utterance = f'sent {data['message_type']} file in the chat';
+            existing_files_url = [];
+
+            # check for existing media
+            existing_media_url = action_node.get_wppconnect_recent_files(session_id=frame_node.session_id, seconds=action_node.recent_files_time_window);
+            if existing_media_url {
+                interact_utterance = "";
+            }
+
 
             # at this point we validated that it warrants a response, let's issue the typing
             action_node.api().set_typing_status(phone=data["sender"], is_group=data["isGroup"]);
@@ -303,13 +325,13 @@ walker wppconnect_interact(action_webhook_walker) {
 
             # ensure the output filename is without whitespaces and slashes
             output_filename = f"wa_{str(uuid.uuid4())}_{name.replace(" ", "_").replace("/", "_").replace("\\", "_")}{extension}";
-            output_file_path = f"wpp/{output_filename}";
+            output_file_path = f"media/{frame_node.session_id}/{output_filename}";
 
             # save document to the file system
-            file_interface.save_file(output_file_path, file_data);
+            action_node.save_file(output_file_path, file_data);
 
             # retrieve file url
-            file_url = file_interface.get_file_url(output_file_path);
+            file_url = action_node.get_file_url(output_file_path);
 
             # if the file url is not available, set the source to the filename
             if not file_url {
@@ -320,7 +342,7 @@ walker wppconnect_interact(action_webhook_walker) {
             data['media'] = file_url;
 
             message = (root spawn interact(
-                utterance = data['caption'] if data['caption'] else f'sent {data['message_type']} file in the chat',
+                utterance = data['caption'] if data['caption'] else interact_utterance,
                 agent_id = agent_node.id,
                 session_id = frame_node.session_id,
                 verbose = False,
@@ -336,6 +358,29 @@ walker wppconnect_interact(action_webhook_walker) {
         }
     }
 
+    def handle_poll_message(data:dict, agent_node:Agent, frame_node:Frame, action_node:Action) {
+        # add document resource to data node in interaction
+        if(self.is_directed_message(action_node, data)) {
+
+            # at this point we validated that it warrants a response, let's issue the typing
+            action_node.api().set_typing_status(phone=data["sender"], is_group=data["isGroup"]);
+
+            message = (root spawn interact(
+                utterance = "Poll Response received.",
+                agent_id = agent_node.id,
+                session_id = frame_node.session_id,
+                verbose = False,
+                reporting = False,
+                channel = "whatsapp",
+                data = {"whatsapp_media": data}
+            )).message;
+
+            action_node.send_message(session_id=frame_node.session_id, message=message, is_group=data["isGroup"]);
+
+            # let's disable the typing
+            action_node.api().set_typing_status(phone=data["sender"], is_group=data["isGroup"], value=False);
+        }
+    }
 
     def handle_location_message(data:dict, agent_node:Agent, frame_node:Frame, action_node:Action) {
         # add document resource to data node in interaction

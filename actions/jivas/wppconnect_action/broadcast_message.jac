@@ -3,7 +3,9 @@ import from logging { Logger }
 import from jivas.agent.core.agent { Agent }
 import from jivas.agent.action.action { Action }
 import from jivas.agent.action.actions { Actions }
-import from jivas.agent.modules.agentlib.utils { Utils }
+
+import from jivas.agent.modules.action.path { action_walker_path }
+
 import from jivas.agent.action.agent_graph_walker { agent_graph_walker }
 import from jivas.agent.memory.interaction_response {
     MessageType, InteractionMessage, TextInteractionMessage, MediaInteractionMessage, MultiInteractionMessage
@@ -23,6 +25,9 @@ walker broadcast_message(agent_graph_walker) {
     # }
 
     # MEDIA
+    # This is for sending media files like images, videos, polls etc.
+    #
+    # Example structure for sending an image:
     # {
     #     "message": {
     #         "message_type": "MEDIA",
@@ -31,6 +36,22 @@ walker broadcast_message(agent_graph_walker) {
     #         "data": {
     #             "url": "https://example.com/image.jpg",
     #             "file_name": "image.jpg"
+    #         }
+    #     },
+    #     "ignore_list": []
+    # }
+    #
+    # Example structure for sending a poll:
+    # {
+    #     "message": {
+    #         "message_type": "MEDIA",
+    #         "mime": "jivas/poll",
+    #         "data": {
+    #             "name": "What's your favorite color?",
+    #             "choices": ["Red", "Green", "Blue"],
+    #             "options": {"selectableCount": 1},
+    #             "duration_minutes": 1440,
+    #             "id": "color_poll_q1"
     #         }
     #     },
     #     "ignore_list": []
@@ -64,13 +85,14 @@ walker broadcast_message(agent_graph_walker) {
     has message:dict = {};
     has ignore_list:list = [];
     has response:str = '';
+    has reporting: bool = True;
 
     # set up logger
     static has logger:Logger = logging.getLogger(__name__);
 
     class __specs__ {
         static has private: bool = False;
-        static has path: str = Utils.action_walker_path(__module__);
+        static has path: str = action_walker_path(__module__);
     }
 
     can on_agent with Agent entry {

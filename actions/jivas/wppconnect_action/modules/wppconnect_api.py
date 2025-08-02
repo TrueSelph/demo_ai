@@ -4,8 +4,11 @@ import base64
 import logging
 import mimetypes
 import os
+import time
+from pathlib import Path
 from typing import Dict, List, Optional
 
+import filetype
 import requests
 from dotenv import load_dotenv
 
@@ -157,6 +160,8 @@ class WPPConnectAPI:
             elif payload["event_type"] == "onpollresponse":
                 payload["poll_id"] = request.get("msgId", {}).get("_serialized", "")
                 payload["selectedOptions"] = request.get("selectedOptions", "")
+                payload["sender"] = str(request.get("chatId", "").replace("@c.us", ""))
+                payload["message_type"] = "poll"
 
             return payload
 
@@ -260,6 +265,14 @@ class WPPConnectAPI:
                 "video/h265",
                 "video/x-f4v",
                 "video/avi",
+            ],
+            "poll": [
+                "application/poll",  # Generic and clean
+                "application/vnd.jivas.poll",  # Vendor-specific to your framework
+                "poll/message",  # Custom subtype under a new "poll" type
+                "application/x-poll-data",  # Legacy-style custom type
+                "application/jivas-poll+json",  # Jivas framework + structured data format
+                "jivas/poll",  # Jivas framework + poll
             ],
         }
 
@@ -382,14 +395,25 @@ class WPPConnectAPI:
     def start_session(self, webhook: str = "", wait_qr_code: bool = False) -> dict:
         """POST /start-session"""
         data = {"webhook": webhook, "waitQrCode": wait_qr_code}
-        return self.send_rest_request("start-session", data=data)
+        result = self.send_rest_request("start-session", data=data)
+        if result.get("status"):
+            return result
+        else:
+            result = self.send_rest_request("start-session", data=data)
+            return result
 
     def close_session(self) -> dict:
         """POST /close-session"""
-        return self.send_rest_request("close-session")
+        result = self.send_rest_request("close-session")
+        if result.get("status"):
+            return result
+        else:
+            result = self.send_rest_request("close-session")
+            return result
 
     def logout_session(self) -> None:
         """POST /logout-session"""
+        self.close_session()
         self.send_rest_request("logout-session")
 
     def qrcode(self) -> dict:
@@ -831,11 +855,11 @@ class WPPConnectAPI:
     def list_chats(self, options: Optional[dict] = None) -> dict:
         """
         POST /api/{session}/list-chats
-        Retrieves a list of chats. You def pass options to filter the chats.
+        Retrieves a list of chats. You can pass options to filter the chats.
 
         Args:
             options (dict, optional): Options to filter the chats.
-                                    Keys def include 'id', 'count', 'direction',
+                                    Keys can include 'id', 'count', 'direction',
                                     'onlyGroups', 'onlyUsers',
                                     'onlyWithUnreadMessage', 'withLabels'.
 
@@ -910,34 +934,33 @@ class WPPConnectAPI:
     @staticmethod
     def file_url_to_base64(file_url: str, force_prefix: bool = True) -> Optional[str]:
         """
-        Downloads file from any web-URL and encodes contents as base64.
-        Does not store the file to any persistent file or storage backend.
+        Downloads a file from a URL and returns its base64-encoded content with MIME type.
+
+        Args:
+            file_url (str): URL of the file to download.
+            force_prefix (bool): If True, prepends 'data:{mime};base64,' to the result.
+
+        Returns:
+            Optional[str]: Base64 string with or without MIME prefix, or None if download fails.
         """
         try:
-            response = requests.get(file_url)
+            response = requests.get(file_url, timeout=15)
             response.raise_for_status()
+            content = response.content
 
-            # Get MIME type from response header
-            content_type = response.headers.get(
-                "Content-Type", "application/octet-stream"
-            )
+            # Use filetype to guess MIME type from content
+            kind = filetype.guess(content)
+            content_type = kind.mime if kind else "application/octet-stream"
 
             # Base64 encode the file content
-            encoded = base64.b64encode(response.content).decode("utf-8")
+            encoded = base64.b64encode(content).decode("utf-8")
 
             if force_prefix:
-                # Prepare prefix
-                prefix = f"data:{content_type};base64,"
-                # If it's already a data URL, return as-is
-                if encoded.startswith(prefix):
-                    return encoded
-                # Otherwise, prepend the prefix
-                return prefix + encoded
-
+                return f"data:{content_type};base64,{encoded}"
             return encoded
 
         except Exception as e:
-            WPPConnectAPI.logger.error(f"Error downloading or encoding file: {e}")
+            WPPConnectAPI.logger.error(f"[ERROR] Failed to fetch or encode file: {e}")
             return None
 
     # 7. Utility & info
@@ -1052,3 +1075,49 @@ class WPPConnectAPI:
     def get_metrics(self) -> dict:
         """GET /metrics"""
         return self.send_rest_request("/metrics", method="GET")
+
+    def list_files_in_folder(
+        self, directory: str, within_seconds: int = 0
+    ) -> List[str]:
+        """
+        Returns filenames created within the last X seconds.
+
+        Args:
+            directory: Path to scan
+            within_seconds: Files created within this time window (seconds)
+
+        Returns:
+            List of filenames created recently
+        """
+        dir_path = Path(directory)
+
+        # Create the directory if it doesn't exist
+        dir_path.mkdir(parents=True, exist_ok=True)
+
+        if not dir_path.is_dir():
+            raise ValueError(f"Directory not found: {directory}")
+
+        current_time = time.time()
+        recent_files = []
+
+        for file in dir_path.iterdir():
+            if file.is_file():
+                if within_seconds > 0:
+                    # Get creation time
+                    if os.name == "nt":  # Windows
+                        created = os.path.getctime(file)
+                    else:  # Mac/Linux
+                        stat = file.stat()
+                        created = (
+                            stat.st_birthtime
+                            if hasattr(stat, "st_birthtime")
+                            else stat.st_ctime
+                        )
+
+                    # Check if created within time window
+                    if (current_time - created) <= within_seconds:
+                        recent_files.append(file.name)
+                else:
+                    recent_files.append(file.name)
+
+        return recent_files

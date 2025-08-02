@@ -1,16 +1,19 @@
 import logging;
 import from logging { Logger }
+import from jivas.agent.core.agent { Agent }
 import from jivas.agent.action.action { Action }
 import from jivas.agent.action.actions { Actions }
 
 import from jivas.agent.modules.action.path { action_walker_path }
 
 import from jivas.agent.action.agent_graph_walker { agent_graph_walker }
-import from jivas.agent.core.agent { Agent }
 
-walker get_qrcode(agent_graph_walker) {
 
-    has response:dict = {};
+walker import_outbox(agent_graph_walker) {
+
+    has response:bool = False;
+    has outbox:dict = {};
+    has purge_collection:bool = False;
     has reporting: bool = True;
 
     # set up logger
@@ -30,7 +33,7 @@ walker get_qrcode(agent_graph_walker) {
     }
 
     can on_action with Action entry {
-        self.response = here.api().qrcode();
+        self.response = here.import_outbox(outbox=self.outbox, purge_collection=self.purge_collection);
         if self.reporting {
             report self.response;
         }

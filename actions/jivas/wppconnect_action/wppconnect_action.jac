@@ -1,19 +1,30 @@
 import os;
 import uuid;
+import shutil;
 import logging;
 import traceback;
 import base64;
 import random;
-import from datetime { datetime }
+import from datetime { datetime, timezone }
 import from typing { Union }
 import from logging { Logger }
-import from jivas.agent.modules.agentlib.utils { Utils }
 import from .modules.wppconnect_api { WPPConnectAPI }
+import from actions.jivas.wppconnect_action.outbox { Outbox }
+import from actions.jivas.wppconnect_action.outbox_item { OutboxItem }
+import from actions.jivas.wppconnect_action.job { Job }
+import from actions.jivas.wppconnect_action.outbox_item_status { OutboxItemStatus }
+
+import from jivas.agent.modules.text.chunking { chunk_long_message }
+
+import from jivas.agent.memory.collection { Collection }
 import from jivas.agent.action.action { Action }
-import from .wppconnect_interact { wppconnect_interact }
 import from jivas.agent.memory.interaction_response {
     MessageType, InteractionMessage, TextInteractionMessage, MediaInteractionMessage, MultiInteractionMessage
 }
+import from jac_cloud.plugin.jaseci { JacPlugin as Jac }
+import from jivas.agent.core.graph_node { GraphNode }
+import from .wppconnect_interact { wppconnect_interact }
+
 
 node WPPConnectAction(Action) {
     # houses configurations per agent for whatsapp api communications provided by wppconnect api
@@ -39,11 +50,14 @@ node WPPConnectAction(Action) {
     # outbox settings
     has outbox_base_rate_per_minute:int = 20;  # WhatsApp API rate limit for sending messages
     has outbox_send_interval:float = 1.0; # the interval (delay) in seconds between sending messages from the outbox
-    has outbox_min_send_interval:float = 1.0; # the minumum interval (delay) in seconds between sending messages from the outbox
+    has outbox_min_send_interval:float = 1.0; # the minimum interval (delay) in seconds between sending messages from the outbox
     has outbox_max_send_interval:float = 10.0; # the maximum interval (delay) in seconds between sending messages from the outbox
     has outbox_min_batch_size:int = 1; # the minimum batch size of messages to send from the outbox
     has outbox_max_batch_size:int = 10; # the maximum batch size of messages to send from the outbox
-    has outbox:dict = {}; # outbox for outgoing mass messages
+    # poll settings
+    has poll_manager_action:str = "PollManagerInteractAction"; # the label of the poll manager action to use for polls
+    has recent_files_time_window:int = 30; # the time window in seconds to search for recent files
+
 
     def on_enable() {
         self.on_register();
@@ -179,36 +193,33 @@ node WPPConnectAction(Action) {
         # evaluate session status
         status_result = self.api().status();
         session_status = status_result.get("status", "").upper();
-
         # if connected, return session result details
-        if session_status == "CONNECTED" {
+        if session_status == "CONNECTED" and self.webhook_url {
             return self.api().register_session(webhook_url = self.webhook_url, wait_qr_code = False);
         }
 
-        if self.webhook_url {
-            # if we have a saved webhook, abort
-            return {};
+        if not self.webhook_url {
+            # if the session is not connected, proceed with re-registration with webhook
+            webhook_walker = wppconnect_interact(agent_id=self.get_agent().id);
+            callback_url = webhook_walker.get_callback_url(
+                base_url=self.base_url,
+                agent_id=self.get_agent().id,
+                expiration = self.webhook_token_expiry_days
+            );
+
+            if not callback_url {
+                self.logger.error('unable to generate webhook url for WPPConnect, missing required parameters');
+                return {};
+            }
+            # update the webhook URL
+            self.webhook_url = callback_url;
+            # complete the full webhook url
+            self.logger.debug(f'wppconnect webhook url: {callback_url}');
+
         }
 
-        # if the session is not connected, proceed with re-registration with webhook
-        webhook_walker = wppconnect_interact();
-        callback_url = webhook_walker.get_callback_url(
-            base_url=self.base_url, 
-            agent_id=self.get_agent().id,
-            expiration = self.webhook_token_expiry_days
-        );
+        result = self.api().register_session(webhook_url = self.webhook_url, wait_qr_code = True);
 
-        if not callback_url {
-            self.logger.error('unable to generate webhook url for WPPConnect, missing required parameters');
-            return {};
-        }
-
-        # update the webhook URL
-        self.webhook_url = callback_url;
-        # complete the full webhook url
-        self.logger.debug(f'wppconnect webhook url: {callback_url}');
-        result = self.api().register_session(webhook_url = callback_url, wait_qr_code = True);
-        
         if result is not None and result.get('status') != 'ERROR' {
             # check if the response contains a valid token
             if result.get('token') {
@@ -256,7 +267,7 @@ node WPPConnectAction(Action) {
             if (message.get_type() == MessageType.SILENCE.value) {}
             elif(message.get_type() == MessageType.TEXT.value) {
                 content = self.sanitize_message(message = message.get_content());
-                outgoing = Utils.chunk_long_message(message=content, max_length = self.chunk_length, chunk_length = self.chunk_length);
+                outgoing = chunk_long_message(message=content, max_length = self.chunk_length, chunk_length = self.chunk_length);
 
                 for chunk in outgoing {
                     result = self.api().send_message(phone=session_id, message=chunk, is_group=is_group, message_id=parent_message_id);
@@ -266,26 +277,63 @@ node WPPConnectAction(Action) {
             } elif(message.get_type() == MessageType.MEDIA.value) {
                 file_type = WPPConnectAPI.get_file_type(mime_type=message.mime);
                 content = self.sanitize_message(message = message.get_content());
-                if(file_type.get('file_type') in ["document", "video", "unknown"]) {
-                    result = self.api().send_file(phone= session_id, file_url=message.data.get('url'), filename=message.data.get('file_name'), caption = content);
+                if(file_type.get('file_type') == "poll"){
+                    result = self.api().send_poll_message(phone=session_id, name=message.data.get('name'), choices=message.data.get('choices'), options=message.data.get('options'), is_group=is_group);
+
+                    # update with poll manager action
+                    if((poll_manager_action := self.get_agent().get_action(action_label=self.poll_manager_action)) and (result["status"] == "success")) {
+                        # set options
+                        poll_options = message.data.get('options', None);
+                        poll_options["duration_minutes"] = message.data.get('duration_minutes', None); # default to None if not set
+
+                        poll_group_id = poll_manager_action.register_dispatched_poll_instance(
+                            user_session_id=session_id,
+                            poll_definition={"name": message.data.get('name'), "choices": message.data.get('choices'), "options": poll_options}, # {"name", "choices", "options": {"selectableCount", "duration_minutes"} }
+                            whatsapp_poll_id=result["response"][0]["id"], # ID of the WA message containing the poll
+                            preferred_internal_id=message.data.get('id') if message.data.get('id') else message.data.get('preferred_internal_id'), # Use the poll id as the preferred internal ID else default to preferred_internal_id
+                        );
+
+                        result["internal_poll_group_id"] = poll_group_id; # add the poll group id to the result
+                    }
+
+                }elif(file_type.get('file_type') in ["document", "video", "unknown"]) {
+                    result = self.api().send_file(phone= session_id, file_url=message.data.get('url'), filename=message.data.get('file_name'), caption = content, is_group=is_group);
                 } elif(file_type.get('file_type') == "image") {
-                    result = self.api().send_image(phone=session_id, file_url= message.data.get('url'), filename=message.data.get('file_name'), caption = content);
+                    result = self.api().send_image(phone=session_id, file_url= message.data.get('url'), filename=message.data.get('file_name'), caption = content, is_group=is_group);
                 }
             } elif(message.get_type() == MessageType.MULTI.value) {
                 for message_item in message.get_content_items() {
                     if(message_item.get_type() == MessageType.TEXT.value) {
                         content = self.sanitize_message(message = message_item.get_content());
-                        outgoing = Utils.chunk_long_message(message=content, max_length = self.chunk_length, chunk_length = self.chunk_length);
+                        outgoing = chunk_long_message(message=content, max_length = self.chunk_length, chunk_length = self.chunk_length);
                         for chunk in outgoing {
                             result = self.api().send_message(phone=session_id, message=chunk, is_group=is_group, message_id=parent_message_id);
                         }
                     } elif(message_item.get_type() == MessageType.MEDIA.value) {
                         file_type = WPPConnectAPI.get_file_type(mime_type=message_item.mime);
                         content = self.sanitize_message(message = message_item.get_content());
-                        if(file_type.get('file_type') in ["document", "video", "unknown"]) {
-                            result = self.api().send_file(phone= session_id, file_url=message_item.data.get('url'), filename=message_item.data.get('file_name'), caption = content);
+                        if(file_type.get('file_type') == "poll"){
+                            result = self.api().send_poll_message(phone=session_id, name=message_item.data.get('name'), choices=message_item.data.get('choices'), options=message_item.data.get('options'), is_group=is_group);
+
+                            # update with poll manager action
+                            if((poll_manager_action := self.get_agent().get_action(action_label=self.poll_manager_action)) and (result["status"] == "success")) {
+                                # set options
+                                poll_options = message_item.data.get('options', None);
+                                poll_options["duration_minutes"] = message_item.data.get('duration_minutes', None); # default to 60 minutes if not set
+
+                                poll_group_id = poll_manager_action.register_dispatched_poll_instance(
+                                    user_session_id=session_id,
+                                    poll_definition={"name": message_item.data.get('name'), "choices": message_item.data.get('choices'), "options": poll_options}, # {"name", "choices", "options": {"selectableCount", "duration_minutes"} }
+                                    whatsapp_poll_id=result["response"][0]["id"], # ID of the WA message containing the poll
+                                    preferred_internal_id=message_item.data.get('id') if message_item.data.get('id') else message_item.data.get('preferred_internal_id'), # Use the poll id as the preferred internal ID if any else default to preferred_internal_id
+                                );
+
+                                result["internal_poll_group_id"] = poll_group_id; # add the poll group id to the result
+                            }
+                        }elif(file_type.get('file_type') in ["document", "video", "unknown"]) {
+                            result = self.api().send_file(phone= session_id, file_url=message_item.data.get('url'), filename=message_item.data.get('file_name'), caption = content, is_group=is_group);
                         } elif(file_type.get('file_type') == "image") {
-                            result = self.api().send_image(phone=session_id, file_url= message_item.data.get('url'), filename=message_item.data.get('file_name'), caption = content);
+                            result = self.api().send_image(phone=session_id, file_url= message_item.data.get('url'), filename=message_item.data.get('file_name'), caption = content, is_group=is_group);
                         }
                     }
                 }
@@ -332,7 +380,7 @@ node WPPConnectAction(Action) {
                     if(interaction_node := frame_node.get_last_interaction()) {
                         if interaction_node.channel in ['whatsapp'] {
                             # add the message to the outbox
-                            self.add_outbox_item(job_id=job_id, session_id=frame_node.session_id, message=message);
+                            self.add_outbox_item(status=OutboxItemStatus.PENDING, job_id=job_id, session_id=frame_node.session_id, message=message);
                         }
                     }
                 }
@@ -356,9 +404,9 @@ node WPPConnectAction(Action) {
     }
 
     def has_outbox_items() -> bool {
-        # check if there are any items in the outbox
-        if self.outbox and len(self.outbox) > 0 {
-            for (job_id, job) in self.outbox.items() {
+        jobs = self.get_jobs();
+        if jobs and len(jobs) > 0 {
+            for (job_id, job) in jobs.items() {
                 if len(job['pending']) > 0 {
                     return True;
                 }
@@ -403,14 +451,10 @@ node WPPConnectAction(Action) {
         processed_count = 0;
         success_count = 0;
         failure_count = 0;
-        jobs = list(self.outbox.items());
+        jobs = list(self.get_jobs().items());
 
         while processed_count < batch_size and len(jobs) > 0 {
             (job_id, job) = jobs.pop(0);
-
-            if not job['pending'] {
-                continue;
-            }
 
             # Process batch slice
             processable = min(batch_size - processed_count, len(job['pending']));
@@ -429,16 +473,21 @@ node WPPConnectAction(Action) {
                     if result.get('status') == 'success' {
                         job['processed'][item_id] = item;
                         success_count += 1;
+                        new_success_rate = job['success_rate'] + success_count;
+                        self.update_job_collection(status=OutboxItemStatus.PROCESSED, item_id=item_id, job_id=job_id, success_rate=new_success_rate);
+
                         self.update_interaction_context(item, interaction_message);
                     } else {
                         job['failed'][item_id] = item;
                         failure_count += 1;
+                        self.update_job_collection(status=OutboxItemStatus.FAILED, item_id=item_id, job_id=job_id);
                     }
 
                     del job['pending'][item_id];
                     processed_count += 1;
                 } except Exception as e {
                     self.logger.error(f"Outbox message processing failed: {str(e)}");
+                    self.update_job_collection(status=OutboxItemStatus.FAILED, item_id=item_id, job_id=job_id);
                     job['failed'][item_id] = item;
                     del job['pending'][item_id];
                     failure_count += 1;
@@ -447,7 +496,6 @@ node WPPConnectAction(Action) {
             }
 
             # Update job state
-            self.outbox[job_id] = job;
             self.maybe_trigger_callback(job_id, job);
         }
 
@@ -468,9 +516,10 @@ node WPPConnectAction(Action) {
         );
     }
 
-    def add_outbox_job(messages: list, callback_url: str = "") -> str {
+    def add_outbox_job(messages: list, callback_url: str = "", status: OutboxItemStatus = OutboxItemStatus.PENDING) -> str {
         # Adds a batch of messages to the outbox with comprehensive validation
         # Returns job ID if successful, empty string if no valid messages
+        self.logger.warning("adding add_outbox_job");
 
         if not messages or not isinstance(messages, list) {
             self.logger.error("Invalid messages format - expected list of message dicts");
@@ -481,8 +530,6 @@ node WPPConnectAction(Action) {
         valid_items = 0;
         validation_errors = [];
 
-        # Initialize job structure before processing messages
-        self.outbox[job_id] = self.create_job_structure(callback_url);
 
         for (index, item) in enumerate(messages) {
             if not self.validate_message_item(item, index, validation_errors) {
@@ -494,6 +541,7 @@ node WPPConnectAction(Action) {
                     message=item['message']
                 );
                 self.add_outbox_item(
+                    status=OutboxItemStatus.PENDING,
                     job_id=job_id,
                     session_id=item['to'],
                     message=interaction_message
@@ -508,7 +556,7 @@ node WPPConnectAction(Action) {
 
         # Clean up empty jobs
         if valid_items == 0 {
-            del self.outbox[job_id];
+            self.purge_outbox(job_id=job_id);
             self.logger.warning(f"Job {job_id} contained no valid messages");
             if validation_errors {
                 self.logger.debug(f"Validation errors:\n" + "\n".join(validation_errors));
@@ -569,11 +617,21 @@ node WPPConnectAction(Action) {
 
     def validate_media_message(message: dict, index: int) -> bool {
         required = {'mime', 'content', 'data'};
+        file_type = WPPConnectAPI.get_file_type(mime_type=message.get('mime', 'unknown'));
+
+        if(file_type.get('file_type') == "poll") {
+            required.remove('content');
+        }
+
         missing = required - message.keys();
 
         if missing {
             self.logger.error(f"Item {index}: MEDIA message missing {missing}");
             return False;
+        }
+
+        if (file_type.get('file_type') == "poll" and all([key in message.get('data', {}) for key in ['name', 'choices', 'options']])) {
+            return True;
         }
 
         if 'url' not in message['data'] {
@@ -615,7 +673,7 @@ node WPPConnectAction(Action) {
         };
     }
 
-    def add_outbox_item(job_id: str, session_id: str, message: InteractionMessage) {
+    def add_outbox_item(job_id: str, session_id: str, status: OutboxItemStatus = OutboxItemStatus.PENDING, message: InteractionMessage) {
         # Adds validated item to specified job with type checking
 
         if not all([
@@ -627,20 +685,8 @@ node WPPConnectAction(Action) {
             return;
         }
 
-        if job_id not in self.outbox {
-            self.logger.warning(f"Creating new job {job_id}...");
-            self.outbox[job_id] = self.create_job_structure();
-        }
-
         item_id = str(uuid.uuid4());
-        self.outbox[job_id]['pending'][item_id] = {
-            'session_id': session_id,
-            'message': message.export(),
-            'added_at': datetime.now().isoformat()
-        };
-
-        # Update job statistics
-        self.outbox[job_id]['stats']['total'] += 1;
+        self.add_outbox_item_collection(status=status, job_id= job_id, item_id=item_id, session_id=session_id, message=message);
     }
 
     def maybe_trigger_callback(job_id:str, job:dict) {
@@ -705,4 +751,421 @@ node WPPConnectAction(Action) {
         );
     }
 
+
+    # collection
+    def add_outbox_item_collection(status:OutboxItemStatus, job_id: str, item_id: str, session_id: str, message: InteractionMessage) -> Job {
+        collection = self.get_collection();
+        outbox_item = (collection spawn _add_job_collection(status=status, job_id=job_id, item_id=item_id, session_id=session_id, message=message)).outbox_item;
+        if outbox_item {
+            self.increment_job_count();
+        }
+        return outbox_item;
+    }
+
+    def purge_outbox(job_id: str="") -> Job {
+        collection = self.get_collection();
+        jobs = (collection spawn _delete_job(job_id=job_id)).deleted;
+        total_jobs = self.get_job_count();
+        self.set_job_count(total_jobs - len(jobs));
+        return jobs;
+    }
+
+    def get_jobs(job_id:str = "") -> dict {
+        collection = self.get_collection();
+        return (collection spawn _get_jobs(job_id=job_id)).outbox_item;
+    }
+
+    def update_job_collection(status: str="", job_id:str = "", item_id:str = "", success_rate:float = 0.0) -> Job {
+        collection = self.get_collection();
+        return (collection spawn _update_job_collection(status=status, job_id=job_id, item_id=item_id, success_rate=success_rate));
+    }
+
+    def import_outbox(outbox: dict, purge_collection: bool = False) -> bool {
+        try {
+            collection = self.get_collection();
+
+            # purge jobs collection
+            if(purge_collection){
+                self.purge_outbox();
+            }
+
+            # import outbox
+            for (job_id, job_data) in outbox.items() {
+                for (item_id, job) in job_data['pending'].items() {
+                    self.add_outbox_item_collection(status=OutboxItemStatus.PENDING, job_id=job_id, item_id=item_id, session_id=job['session_id'], message=job['message']);
+                }
+                for (item_id, job) in job_data['processed'].items() {
+                    self.add_outbox_item_collection(status=OutboxItemStatus.PROCESSED, job_id=job_id, item_id=item_id, session_id=job['session_id'], message=job['message']);
+                }
+                for (item_id, job) in job_data['failed'].items() {
+                    self.add_outbox_item_collection(status=OutboxItemStatus.FAILED, job_id=job_id, item_id=item_id, session_id=job['session_id'], message=job['message']);
+                }
+            }
+
+            # Calculate dynamic batch size based on current rate window
+            batch_size = self.calculate_dynamic_batch_size();
+
+            # Process messages with current batch size
+            (processed, successes, failures) = self.send_from_outbox(batch_size=batch_size);
+
+            # Update rate limiting parameters
+            self.update_send_parameters(successes, failures);
+
+            # Restart scheduler with new parameters if items remain
+            if self.has_outbox_items() {
+                self.restart_scheduler();
+            }
+
+            return True;
+        } except Exception as e {
+            self.logger.error(f"Error importing outbox: {e}");
+            return False;
+        }
+    }
+
+
+    def get_job_count() -> int {
+        collection = self.get_collection();
+        return collection.data_get('job_count') or 0;
+    }
+
+    def set_job_count(amount:int) {
+        collection = self.get_collection();
+        collection.data_set('job_count', amount);
+    }
+
+    def increment_job_count(amount:int=1) -> int {
+        # Increment the job_count by the specified amount (default 1).
+        collection = self.get_collection();
+        if amount < 0 {
+            return self.get_job_count();
+        }
+
+        job_count = self.get_job_count() + 1;
+        collection.data_set('job_count', job_count);
+
+        return job_count;
+    }
+
+    def list_outbox_items(page:int, limit:int, filtered_status:list = [], filtered_job_id:list = []) -> dict {
+        # Lists all document entries in the manifest with pagination.
+
+        collection = self.get_collection();
+        result = collection spawn _list_outbox_items(page=page, limit=limit, total_items=self.get_job_count(), filtered_status=filtered_status, filtered_job_id=filtered_job_id);
+        if not result {
+            self.logger.error("No jobs found in the manifest.");
+            return {};
+        }
+        return {
+            "page": result.page,
+            "limit": result.limit,
+            "total_items": result.total_items,
+            "total_pages": result.total_pages,
+            "has_previous": result.has_previous,
+            "has_next": result.has_next,
+            "items": result.items,
+            "jobs": result.jobs
+        };
+    }
+
+
+    def get_wppconnect_media(session_id:str) -> list {
+        collection = self.get_collection();
+        media_list = self.api().list_files_in_folder(f".files/{self.get_agent().id}/{self.label}/media/{session_id}");
+
+        media_urls = [];
+        for output_filename in media_list {
+            output_file_path = f"media/{session_id}/{output_filename}";
+            file_url = self.get_file_url(output_file_path);
+            media_urls.append(file_url);
+        }
+        return media_urls;
+    }
+
+    def get_wppconnect_recent_files(session_id:str, seconds:int=0) -> list {
+        return self.api().list_files_in_folder(directory=f".files/{self.get_agent().id}/{self.label}/media/{session_id}", within_seconds=seconds);
+    }
+
+    def delete_wppconnect_media(session_id:str) {
+        media_path = f".files/{self.get_agent().id}/{self.label}/media/{session_id}";
+        shutil.rmtree(media_path, ignore_errors=True);
+    }
 }
+
+
+walker _delete_job {
+    has job_id:str = "";
+    has deleted:list = [];
+    has job_deleted:list = [];
+
+    obj __specs__ {
+        static has private:bool = True;
+    }
+
+    can on_collection with Collection entry {
+        visit [-->](`?Outbox);
+    }
+
+    can on_outbox with Outbox entry {
+        if not self.job_id {
+            self.job_deleted.append(here);
+            visit [-->](`?Job);
+        } else {
+            visit [-->](`?Job)(?job_id == self.job_id);
+        }
+    }
+
+    can on_job with Job entry {
+        visit [-->](`?OutboxItem);
+
+        if len([-->]) <= 1 or not self.job_id {
+            self.job_deleted.append(here);
+        }
+    }
+
+    can on_outbox_item with OutboxItem entry {
+        self.deleted.append(here);
+    }
+
+    can on_exit with exit {
+        for item in self.deleted {
+            Jac.destroy(item);
+        }
+
+        for item in self.job_deleted {
+            Jac.destroy(item);
+        }
+    }
+
+}
+
+walker _add_job_collection {
+    has outbox_item:OutboxItem = None;
+    has job_id:str = "";
+    has item_id:str = "";
+    has session_id:str = "";
+    has status:OutboxItemStatus = OutboxItemStatus.PENDING;
+    has message:InteractionMessage = None;
+
+
+    obj __specs__ {
+        static has private:bool = True;
+    }
+
+    can on_collection with Collection entry {
+        visit [-->](`?Outbox) else {
+            outbox = Outbox();
+            here ++> outbox;
+            visit [-->](`?Outbox);
+        }
+    }
+
+    can on_outbox with Outbox entry {
+        visit [-->](`?Job)(?job_id == self.job_id) else {
+            job = Job(job_id=self.job_id);
+            here ++> job;
+
+            visit [-->](`?Job)(?job_id == self.job_id);
+        }
+    }
+
+    can on_job with Job entry {
+        visit [-->](`?OutboxItem)(?item_id == self.item_id) else {
+            date_now = datetime.now().isoformat();
+            self.outbox_item = OutboxItem(item_id=self.item_id, session_id=self.session_id, added_at=date_now, message=self.message, status=self.status);
+            here ++> self.outbox_item;
+            here.total = here.total + 1;
+            here.created_at = date_now;
+        }
+    }
+}
+
+walker _update_job_collection {
+    has status:str = "";
+    has item_id:str = "";
+    has job_id:str = "";
+    has success_rate:float = 0.0;
+
+    obj __specs__ {
+        static has private:bool = True;
+    }
+
+    can on_collection with Collection entry {
+        visit [-->](`?Outbox);
+    }
+
+    can on_outbox with Outbox entry {
+        visit [-->](`?Job)(?job_id == self.job_id);
+    }
+
+    can on_job with Job entry {
+        if here.job_id == self.job_id {
+            if self.success_rate {
+                here.success_rate = self.success_rate / here.total;
+            }
+        }
+
+        if self.status in OutboxItemStatus {
+            visit [-->](`?OutboxItem)(?item_id == self.item_id);
+        }
+    }
+
+    can on_outbox_item with OutboxItem entry {
+        here.status = self.status;
+    }
+}
+
+walker _get_jobs {
+    has job_id:str = "";
+    has outbox_item:dict = {};
+
+    obj __specs__ {
+        static has private:bool = True;
+    }
+
+    can on_collection with Collection entry {
+        visit [-->](`?Outbox);
+    }
+
+    can on_outbox with Outbox entry {
+        if self.job_id {
+            visit [-->](`?Job)(?job_id == self.job_id);
+        } else {
+            visit [-->](`?Job);
+        }
+    }
+
+    can on_job with Job entry {
+
+        # get pending post
+        pending_outbox_item_node = [-->](`?OutboxItem)(?status == OutboxItemStatus.PENDING);
+        pending_outbox_item_data = {};
+        for item in pending_outbox_item_node {
+            pending_outbox_item_data[item.item_id] = {
+                "session_id": item.session_id,
+                "message": item.message,
+                "added_at": item.added_at
+            };
+        }
+
+        # get processed outbox item
+        processed_outbox_item_node = [-->](`?OutboxItem)(?status == OutboxItemStatus.PROCESSED);
+        processed_outbox_item_data = {};
+        for item in processed_outbox_item_node {
+            processed_outbox_item_data[item.item_id] = {
+                "session_id": item.session_id,
+                "message": item.message,
+                "added_at": item.added_at
+            };
+        }
+
+        # get failed outbox item
+        failed_outbox_item_node = [-->](`?OutboxItem)(?status == OutboxItemStatus.FAILED);
+        failed_outbox_item_data = {};
+        for item in failed_outbox_item_node {
+            failed_outbox_item_data[item.item_id] = {
+                "session_id": item.session_id,
+                "message": item.message,
+                "added_at": item.added_at
+            };
+        }
+
+        self.outbox_item[here.job_id] = {
+            "pending": pending_outbox_item_data,
+            "processed": processed_outbox_item_data,
+            "failed": failed_outbox_item_data,
+            "success_rate": here.success_rate,
+            "total": here.total
+        };
+
+    }
+}
+
+
+walker _list_outbox_items {
+    # Spawns on action collection and returns a paginated, flattened list of doc entries with total count and page control
+
+    has page:int = 1;
+    has limit:int = 50;
+    has offset:int = 0;
+    has total_items:int = 0;
+    has total_pages:int = 1;
+    has has_previous:bool = False;
+    has has_next:bool = False;
+    has current_index:int = 0;
+    has items:list = [];
+    has filtered_status:str = [];
+    has filtered_job_id:str = [];
+    has jobs:list = [];
+
+    # set up logger
+    static has logger:Logger = logging.getLogger(__name__);
+
+    obj __specs__ {
+        static has private: bool = True;
+    }
+
+    can on_collection with Collection entry {
+        visit [-->](`?Outbox);
+    }
+
+    can on_outbox with Outbox entry {
+        # First, count total doc entries
+        job_entries = [-->](`?Job);
+
+        # Calculate offset based on page and limit
+        if self.limit > 0 {
+            self.offset = (self.page - 1) * self.limit;
+            self.total_pages = (self.total_items // self.limit) + (1 if self.total_items % self.limit > 0 else 0);
+            self.has_previous = self.page > 1;
+            self.has_next = self.page < self.total_pages;
+        } else {
+            self.offset = 0;
+            self.total_pages = 1;
+            self.has_previous = False;
+            self.has_next = False;
+        }
+
+        visit [-->](`?Job);
+    }
+
+    can on_job with Job entry {
+        self.jobs.append(here.job_id);
+        if self.filtered_job_id {
+            if(here.job_id in self.filtered_job_id) {
+                visit [-->](`?OutboxItem);
+            }
+        } else {
+            visit [-->](`?OutboxItem);
+        }
+    }
+
+    can on_outbox_item with OutboxItem entry {
+        if self.filtered_status {
+            if here.status.name in self.filtered_status {
+                if self.current_index >= self.offset and (self.limit == 0 or len(self.items) < self.limit) {
+                    outbox_item = here.export();
+                    job_id = [<--](`?Job)[0].job_id;
+                    outbox_item['job_id'] = job_id;
+                    self.items.append(outbox_item);
+                }
+                self.current_index += 1;
+                if self.limit != 0 and len(self.items) >= self.limit {
+                    disengage;
+                }
+            }
+        }else {
+            if self.current_index >= self.offset and (self.limit == 0 or len(self.items) < self.limit) {
+                outbox_item = here.export();
+                job_id = [<--](`?Job)[0].job_id;
+                outbox_item['job_id'] = job_id;
+                self.items.append(outbox_item);
+            }
+            self.current_index += 1;
+            if self.limit != 0 and len(self.items) >= self.limit {
+                disengage;
+            }
+        }
+    }
+}
+

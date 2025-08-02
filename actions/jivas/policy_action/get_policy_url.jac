@@ -1,20 +1,15 @@
-import logging;
-import from logging { Logger }
 import from jivas.agent.core.agent { Agent }
 import from jivas.agent.action.action { Action }
 import from jivas.agent.action.actions { Actions }
+import from jivas.agent.action.agent_graph_walker { agent_graph_walker }
 
 import from jivas.agent.modules.action.path { action_walker_path }
 
-import from jivas.agent.action.agent_graph_walker { agent_graph_walker }
 
-walker register_session(agent_graph_walker) {
 
-    has response: dict = {};
-    has reporting: bool = True;
+walker get_policy_url(agent_graph_walker) {
 
-    # set up logger
-    static has logger:Logger = logging.getLogger(__name__);
+    has response:str = "";
 
     class __specs__ {
         static has private: bool = False;
@@ -22,18 +17,15 @@ walker register_session(agent_graph_walker) {
     }
 
     can on_agent with Agent entry {
+        self.agent_name = here.name;
         visit [-->](`?Actions);
     }
 
     can on_actions with Actions entry {
-        visit [-->](`?Action)(?enabled==True)(?label=='WPPConnectAction');
+        visit [-->](`?Action)(?enabled==True)(?label == 'PolicyAction');
     }
 
     can on_action with Action entry {
-        self.response = here.register_session();
-        if self.reporting {
-            report self.response;
-        }
+        self.response = here.policy_url;
     }
-
 }

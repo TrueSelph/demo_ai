@@ -6,7 +6,7 @@
 ![GitHub pull requests](https://img.shields.io/github/issues-pr/TrueSelph/wppconnect_action)
 ![GitHub](https://img.shields.io/github/license/TrueSelph/wppconnect_action)
 
-JIVAS action wrapper for WhatsApp API communications using the WPPConnect API with advanced mass messaging outbox. This action provides a wrapper for WhatsApp API communications using the [WPPConnect API](https://github.com/wppconnect-team/wppconnect-server). As a core action, it simplifies and streamlines interactions with WhatsApp. The package is a singleton and requires the Jivas library version ^2.0.0.
+JIVAS action wrapper for WhatsApp API communications using the WPPConnect API with advanced mass messaging outbox. This action provides a wrapper for WhatsApp API communications using the [WPPConnect API](https://github.com/wppconnect-team/wppconnect-server). As a core action, it simplifies and streamlines interactions with WhatsApp. The package is a singleton and requires the Jivas library version ^2.1.0.
 
 ## Package Information
 
@@ -23,8 +23,8 @@ JIVAS action wrapper for WhatsApp API communications using the WPPConnect API wi
 ## Configuration
 - **Singleton:** true
 ## Dependencies
-- **Jivas:** `~2.0.0-aplha.40`
-- **PulseAction:** `~0.0.2`
+- **Jivas:** `~2.1.0`
+- **PulseAction:** `~0.1.0`
 - **WPPConnect Server:** `~2.8.5`
 
 ---
@@ -76,7 +76,7 @@ To use the WPPConnect Action, you need to set up the following configuration par
 | `outbox_max_send_interval`    | float    | Maximum allowed delay (seconds).                                                  | `10.0`        |
 | `outbox_min_batch_size`    | int    | Maximum messages per batch.                                                  | `1`        |
 | `outbox_max_batch_size`    | int    | Minimum messages per batch..                                                  | `10`        |
-
+| `poll_manager_action`    | str    | Action name to manage poll entries.                                                  | `PollManagerInteractAction`        |
 
 ---
 
@@ -193,7 +193,7 @@ Your callback will receive a JSON payload with the following structure automatic
 ```
 
 #### MEDIA
-
+##### Image
 ```json
 {
    "message": {
@@ -203,6 +203,23 @@ Your callback will receive a JSON payload with the following structure automatic
       "data": {
          "url": "https://example.com/image.jpg",
          "file_name": "image.jpg"
+      }
+   }
+}
+```
+
+##### Polls
+```json
+{
+   "message": {
+      "message_type": "MEDIA",
+      "mime": "jivas/poll",
+      "data": {
+         "name": "What's your favorite color?",
+         "choices": ["Red", "Green", "Blue"],
+         "options": {"selectableCount": 1},
+         "duration_minutes": 1440,
+         "id": "color_poll_q1"
       }
    }
 }

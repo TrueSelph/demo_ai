@@ -8,5 +8,9 @@ import from actions.jivas.wppconnect_action {
     get_qrcode,
     get_session_status,
     send_messages,
-    broadcast_message
+    broadcast_message,
+    export_outbox,
+    import_outbox,
+    list_outbox_items,
+    purge_outbox
 }
