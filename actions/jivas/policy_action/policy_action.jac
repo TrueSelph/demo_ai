@@ -1,8 +1,6 @@
 import markdown;
 import from typing { Union }
-
 import from jivas.agent.modules.text.formatting { to_snake_case }
-
 import from jivas.agent.action.action { Action }
 
 node PolicyAction(Action) {

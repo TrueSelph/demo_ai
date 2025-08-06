@@ -25,9 +25,9 @@ This action triggers upon a first-time user message by dispatching an introducto
 
 ## Dependencies
 
-- **Jivas:** `^2.0.0`
+- **Jivas:** `^2.1.0`
 - **Actions:**
-  - `jivas/persona_interact_action`: `>=0.0.1`
+  - `jivas/persona_interact_action`: `>=0.1.0`
 
 ---
 

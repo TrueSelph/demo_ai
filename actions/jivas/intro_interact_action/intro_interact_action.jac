@@ -17,10 +17,6 @@ node IntroInteractAction(InteractAction) {
         visitor.interaction_node.add_directive(directive=self.prompt);
     }
 
-    def pulse() {
-        self.logger.info('pulsing..');
-    }
-
     def healthcheck() -> Union[bool, dict] {
 
         if(not self.prompt) {
